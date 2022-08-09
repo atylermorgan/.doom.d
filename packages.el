@@ -56,3 +56,4 @@
 (package! org-ref)
 (package! org-roam-bibtex)
 (package! multi-term)
+(package! quarto-mode)

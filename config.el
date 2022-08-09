@@ -125,6 +125,39 @@
 (after! org
   (add-to-list 'org-export-backends 'pdflatex))
 
+;; org capture templates
+(after! org
+  (setq org-capture-templates
+        '(("t" "Todo" entry
+           (file+headline "~/org/todo.org" "Inbox")
+           "* %?\n:PROPERTIES:\n:CREATED:%U\n:END:\n%i\n"
+           :prepend t :kill-buffer t)
+          ("i" "Idea!" entry
+           (file+headline "~/projects/eln_morgan/source/org/inbox.org" "Ideas")
+           "* %?\n:PROPERTIES:\n:CREATED:%U\n:END:\n%i\n"
+           :prepend t :kill-buffer t)
+          ("l" "Linescan" entry
+           (file+headline "~/projects/eln_morgan/source/org/inbox.org" "Line Scanning")
+           "** %?\n:PROPERTIES:\n:CREATED:%U\n:END:\n%i\n"
+           :prepend t :kill-buffer t)
+          ("v" "Visual Representations" entry
+           (file+headline "~/projects/eln_morgan/source/org/inbox.org" "Visual Representations")
+           "* %?\n:PROPERTIES:\n:CREATED:%U\n:END:\n%i\n"
+           :prepend t :kill-buffer t)
+          ("c" "Connectivity" entry
+           (file+headline "~/projects/eln_morgan/source/org/inbox.org" "Connectivity")
+           "* %?\n:PROPERTIES:\n:CREATED:%U\n:END:\n%i\n"
+           :prepend t :kill-buffer t)
+          ("e" "Encoding" entry
+           (file+headline "~/projects/eln_morgan/source/org/inbox.org" "Encoding")
+           "* %?\n:PROPERTIES:\n:CREATED:%U\n:END:\n%i\n"
+           :prepend t :kill-buffer t)
+          ("u" "UK7T" entry
+           (file+headline "~/projects/eln_morgan/source/org/inbox.org" "UK7T")
+           "* %?\n:PROPERTIES:\n:CREATED:%U\n:END:\n%i\n"
+           :prepend t :kill-buffer t)
+          )))
+
 ;; try to fix org inline images (see https://github.com/hlissner/doom-emacs/issues/3185)
 (defadvice! no-errors/+org-inline-image-data-fn (_protocol link _description)
   :override #'+org-inline-image-data-fn
@@ -247,3 +280,21 @@ https://github.com/abo-abo/org-download/commit/137c3d2aa083283a3fc853f9ecbbc0303
       (expand-file-name filename-with-timestamp dir))))
 
 (setq org-download-method  'drestivo/org-download-method)
+
+;; Set up ccls for lsp-mode (for c++)
+(require 'ccls)
+(setq ccls-executable "/usr/local/bin/ccls")
+(after! ccls
+  (setq ccls-initialization-options '(:index (:comments 2) :completion (:detailedLabel t)))
+  (set-lsp-priority! 'ccls 2)) ; optional as ccls is the default in Doom
+;; (require 'company-lsp) ; I think this no longer works...
+;; (push 'company-lsp company-backends)
+
+;; tramp stuff
+(add-to-list 'tramp-remote-path 'tramp-own-remote-path)
+;; (setq remote-file-name-inhibit-cache nil)
+;; (setq vc-ignore-dir-regexp
+;;       (format "%s\\|%s"
+;;                     vc-ignore-dir-regexp
+;;                     tramp-file-name-regexp))
+;; (setq tramp-verbose 1)
