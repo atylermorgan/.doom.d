@@ -80,13 +80,21 @@
         org-mac-outlook-timeout 2
         org-mac-outlook-link-format 'with-sender))
 
+;; Load Outlook Graph API module
+(load! "modules/org-outlook-graph")
+(setq org-outlook-graph-link-format 'full)  ; Options: subject-only, with-sender, with-date, full
+(setq org-outlook-graph-python-command
+      "/Users/morganat/opt/anaconda3/envs/microsoft/bin/python")
+
 ;; Keybindings for org links
 (map! :after org
       :map org-mode-map
       :localleader
-      :desc "Insert Outlook link" "l o" #'org-mac-outlook-message-insert-selected
-      :desc "Test Outlook connection" "l t" #'org-mac-outlook-link-test-connection
-      :desc "Manual email entry" "l m" #'org-mac-outlook-link-manual-entry
+      :desc "Search Outlook" "l o" #'org-outlook-graph-search
+      :desc "Insert Outlook link" "l O" #'org-outlook-graph-insert-link
+      :desc "Search Outlook" "l M-o" #'org-outlook-graph-insert-by-subject
+      :desc "Authenticate Outlook API" "l a" #'org-outlook-graph-authenticate
+      :desc "Test Outlook API" "l t" #'org-outlook-graph-test
       :desc "Insert url link" "l l" #'url-capture-insert-url
       :desc "Insert url link (prompt)" "l L" #'url-capture-insert-url-prompt)
 
