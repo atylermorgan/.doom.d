@@ -155,13 +155,17 @@ ORIGIN-BUFFER and ORIGIN-WINDOW track where to insert the link."
 
 (defun org-outlook-graph--insert-email-link (email)
   "Insert org link for EMAIL."
-  (let* ((id (alist-get 'id email))
-         (web-link (alist-get 'webLink email))
+  (let* ((internet-msg-id (alist-get 'internetMessageId email))
+         (id (alist-get 'id email))
          (description (org-outlook-graph--format-description
                       email org-outlook-graph-link-format))
-         (link (or web-link (format "outlook-graph:%s" id))))
-    (insert (format "[[%s][%s]]" link description))
-    (message "Outlook link inserted")))
+         ;; Prefer internetMessageId (truly immutable), fallback to regular id
+         (link-id (if (and internet-msg-id (not (string-empty-p internet-msg-id)))
+                      internet-msg-id
+                    id)))
+    (insert (format "[[outlook-msg:%s][%s]]" link-id description))
+    (message "Outlook link inserted (using %s)"
+             (if (equal link-id internet-msg-id) "immutable Message-ID" "regular ID"))))
 
 ;;;###autoload
 (defun org-outlook-graph-insert-link ()
@@ -225,17 +229,19 @@ Useful workflow: Copy email subject in Outlook, then run this."
       (message "✗ Not authenticated. Run M-x org-outlook-graph-authenticate"))))
 
 ;; Link type handlers
-(defun org-outlook-graph-open-link (link)
-  "Open Outlook email LINK in browser."
-  ;; If it's an outlook-graph: link, we need to fetch the web link
-  (if (string-prefix-p "http" link)
-      (browse-url link)
-    ;; It's an ID, fetch the email and open web link
-    (let* ((email (org-outlook-graph--call-api (format "--get %s" link)))
-           (web-link (alist-get 'webLink email)))
-      (if web-link
-          (browse-url web-link)
-        (message "Could not open email: %s" (alist-get 'error email))))))
+(defun org-outlook-graph-open-link (id)
+  "Open Outlook email by ID.
+Fetches the current webLink via API and opens it."
+  (message "Looking up email location...")
+  (let* ((email (org-outlook-graph--call-api (format "--get %s" (shell-quote-argument id)))))
+    (if (and email (not (alist-get 'error email)))
+        (let ((web-link (alist-get 'webLink email)))
+          (if web-link
+              (progn
+                (message "Opening email...")
+                (browse-url web-link))
+            (message "Error: No webLink returned from API")))
+      (message "Could not find email: %s" (or (alist-get 'error email) "Unknown error")))))
 
 (defun org-outlook-graph-export-link (link description format)
   "Export Outlook LINK with DESCRIPTION to FORMAT."
@@ -250,11 +256,13 @@ Useful workflow: Copy email subject in Outlook, then run this."
 ;;;###autoload
 (defun org-outlook-graph-setup ()
   "Set up org-link handlers for Outlook Graph links."
+  (org-link-set-parameters "outlook-msg"
+                           :follow #'org-outlook-graph-open-link
+                           :export #'org-outlook-graph-export-link)
+  ;; Also support old format
   (org-link-set-parameters "outlook-graph"
                            :follow #'org-outlook-graph-open-link
                            :export #'org-outlook-graph-export-link)
-  ;; Also handle https://outlook links
-  (advice-add 'org-link-open :around #'org-outlook-graph--link-advice)
   (message "Outlook Graph API link handler installed"))
 
 (defun org-outlook-graph--link-advice (orig-fun &rest args)

@@ -52,7 +52,8 @@ tell application \"Microsoft Outlook\"
     end if
     set theMessage to item 1 of selectedMessages
     set msgSubject to subject of theMessage as text
-    set msgId to id of theMessage as text
+    -- Use message id (Internet Message-ID) instead of local id
+    set msgId to message id of theMessage as text
     set msgFrom to sender of theMessage
     set msgDate to time received of theMessage
     set result to msgId & \"|||\"
@@ -113,7 +114,7 @@ This is a drop-in replacement for the org-mac-link function."
   (interactive)
   (let ((data (org-mac-outlook-link--retrieve-with-retry)))
     (if data
-        (let* ((link (format "outlook:%s" (plist-get data :id)))
+        (let* ((link (format "message:%s" (plist-get data :id)))
                (description (org-mac-outlook-link--format-description data)))
           (insert (format "[[%s][%s]]" link description))
           (message "Outlook link inserted"))
@@ -152,30 +153,39 @@ Useful for debugging."
                  (plist-get data :id))
       (message "❌ Failed to retrieve email. Make sure:\n1. Classic Outlook is running\n2. An email is selected\n3. AppleScript access is enabled"))))
 
-;; Setup org-link type for outlook: links
+;; Setup org-link type for message: links
 ;;;###autoload
 (defun org-mac-outlook-link-setup ()
-  "Set up org-link handler for outlook: links."
-  (org-link-set-parameters "outlook"
+  "Set up org-link handler for message: links."
+  (org-link-set-parameters "message"
                            :follow #'org-mac-outlook-link-open
                            :export #'org-mac-outlook-link-export)
-  (message "Outlook link handler installed"))
+  (message "Outlook message link handler installed"))
 
 (defun org-mac-outlook-link-open (id)
-  "Open Outlook email with ID."
+  "Open Outlook email with ID (Message-ID)."
   (do-applescript
    (format "
 tell application \"Microsoft Outlook\"
     activate
-    open message id %s
-end tell" id)))
+    -- Search for message by Message-ID in headers
+    set allMessages to messages of inbox
+    repeat with theMsg in allMessages
+        set msgHeaders to headers of theMsg
+        if msgHeaders contains \"%s\" then
+            open theMsg
+            return
+        end if
+    end repeat
+    display dialog \"Email not found with Message-ID: %s\" buttons {\"OK\"} default button 1
+end tell" id id)))
 
 (defun org-mac-outlook-link-export (link description format)
-  "Export outlook LINK with DESCRIPTION to FORMAT."
+  "Export message LINK with DESCRIPTION to FORMAT."
   (let ((desc (or description link)))
     (pcase format
-      ('html (format "<a href=\"outlook:%s\">%s</a>" link desc))
-      ('latex (format "\\href{outlook:%s}{%s}" link desc))
+      ('html (format "<a href=\"message:%s\">%s</a>" link desc))
+      ('latex (format "\\href{message:%s}{%s}" link desc))
       ('ascii desc)
       (_ desc))))
 

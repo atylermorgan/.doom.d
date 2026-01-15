@@ -23,6 +23,8 @@ from pathlib import Path
 import platform
 
 # Configuration - UPDATE THESE VALUES
+CLIENT_ID = "your-client-id-here"
+TENANT_ID = "your-tenant-id-here"
 CLIENT_ID = "4ae68297-e83b-41a1-8a0f-659db3f6ad01"
 TENANT_ID = "14b77578-9773-42d5-8507-251ca2dc2b06"
 
@@ -92,7 +94,9 @@ def get_selected_email_mac():
     """Get currently selected email in Outlook on Mac using AppleScript"""
     try:
         import subprocess
-        script = '''
+
+        # First, get subject and sender
+        script1 = '''
 tell application "Microsoft Outlook"
     set selectedMessages to selected objects
     if (count of selectedMessages) is 0 then
@@ -101,32 +105,50 @@ tell application "Microsoft Outlook"
     set theMessage to item 1 of selectedMessages
     set msgSubject to subject of theMessage as text
     set msgFrom to sender of theMessage
-    set msgHeaders to headers of theMessage as text
-    return msgSubject & "|||" & (name of msgFrom as text) & "|||" & msgHeaders
+    return msgSubject & "|||" & (name of msgFrom as text)
 end tell
 '''
-        result = subprocess.run(['osascript', '-e', script],
-                              capture_output=True, text=True, check=True)
+        result1 = subprocess.run(['osascript', '-e', script1],
+                                capture_output=True, text=True, check=True)
 
-        parts = result.stdout.strip().split('|||')
-        if len(parts) >= 3:
-            subject = parts[0]
-            from_name = parts[1]
-            headers = parts[2]
+        parts = result1.stdout.strip().split('|||')
+        subject = parts[0] if len(parts) > 0 else "Unknown"
+        from_name = parts[1] if len(parts) > 1 else "Unknown"
 
-            # Extract Message-ID from headers
-            import re
-            match = re.search(r'Message-ID:\s*<?([^<>\s]+@[^<>\s]+)>?', headers)
-            if match:
-                message_id_header = match.group(1)
-                # Return in format compatible with API
-                return {
-                    'subject': subject,
-                    'from_name': from_name,
-                    'message_id_header': message_id_header
-                }
+        # Second, get headers separately
+        script2 = '''
+tell application "Microsoft Outlook"
+    set selectedMessages to selected objects
+    set theMessage to item 1 of selectedMessages
+    return headers of theMessage
+end tell
+'''
+        result2 = subprocess.run(['osascript', '-e', script2],
+                                capture_output=True, text=True, check=True)
 
-        return None
+        headers = result2.stdout
+
+        # Extract Message-ID from headers
+        import re
+        match = re.search(r'Message-ID:\s*<?([^<>\s]+@[^<>\s]+)>?', headers, re.IGNORECASE | re.MULTILINE)
+        if match:
+            message_id_header = match.group(1)
+            return {
+                'subject': subject,
+                'from_name': from_name,
+                'message_id_header': message_id_header
+            }
+        else:
+            # Couldn't find Message-ID, return what we have
+            return {
+                'subject': subject,
+                'from_name': from_name,
+                'message_id_header': None,
+                'error': 'Could not extract Message-ID from headers'
+            }
+
+    except subprocess.CalledProcessError as e:
+        raise Exception(f"AppleScript failed: {e.stderr}")
     except Exception as e:
         raise Exception(f"Could not get selected email: {e}")
 
@@ -216,13 +238,35 @@ def get_recent_emails(token, count=10):
         'Content-Type': 'application/json'
     }
 
-    url = f"{GRAPH_API_ENDPOINT}/me/messages?$top={count}&$select=id,subject,from,receivedDateTime,webLink"
+    # Include internetMessageId in the select
+    url = f"{GRAPH_API_ENDPOINT}/me/messages?$top={count}&$select=id,subject,from,receivedDateTime,webLink,internetMessageId"
     response = requests.get(url, headers=headers)
 
     if response.status_code == 200:
         return response.json().get('value', [])
     else:
         raise Exception(f"API Error {response.status_code}: {response.text}")
+
+
+def find_email_by_internet_message_id(token, internet_message_id):
+    """Find email by Internet Message ID (immutable identifier)"""
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json'
+    }
+
+    # Filter by internetMessageId
+    filter_query = f"internetMessageId eq '{internet_message_id}'"
+    url = f"{GRAPH_API_ENDPOINT}/me/messages?$filter={filter_query}&$select=id,subject,from,receivedDateTime,webLink,internetMessageId"
+
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        results = response.json().get('value', [])
+        if results:
+            return results[0]
+
+    return None
 
 
 def get_email_by_id(token, message_id):
@@ -232,7 +276,12 @@ def get_email_by_id(token, message_id):
         'Content-Type': 'application/json'
     }
 
-    url = f"{GRAPH_API_ENDPOINT}/me/messages/{message_id}?$select=id,subject,from,receivedDateTime,webLink"
+    # URL encode the message ID to handle special characters like = and +
+    import urllib.parse
+    encoded_id = urllib.parse.quote(message_id, safe='')
+
+    # Include internetMessageId in the select
+    url = f"{GRAPH_API_ENDPOINT}/me/messages/{encoded_id}?$select=id,subject,from,receivedDateTime,webLink,internetMessageId"
     response = requests.get(url, headers=headers)
 
     if response.status_code == 200:
@@ -248,7 +297,8 @@ def search_emails(token, query, count=10):
         'Content-Type': 'application/json'
     }
 
-    url = f"{GRAPH_API_ENDPOINT}/me/messages?$search=\"{query}\"&$top={count}&$select=id,subject,from,receivedDateTime,webLink"
+    # Include internetMessageId in the select
+    url = f"{GRAPH_API_ENDPOINT}/me/messages?$search=\"{query}\"&$top={count}&$select=id,subject,from,receivedDateTime,webLink,internetMessageId"
     response = requests.get(url, headers=headers)
 
     if response.status_code == 200:
@@ -259,13 +309,17 @@ def search_emails(token, query, count=10):
 
 def format_email_json(email):
     """Format email as JSON for Emacs"""
+    # Return both the original webLink and the ID
+    # The webLink works until the email is moved
+    # The ID can be used as a fallback
     return {
         'id': email.get('id'),
         'subject': email.get('subject', 'No Subject'),
         'from': email.get('from', {}).get('emailAddress', {}).get('address', 'Unknown'),
         'from_name': email.get('from', {}).get('emailAddress', {}).get('name', 'Unknown'),
         'date': email.get('receivedDateTime', 'Unknown'),
-        'webLink': email.get('webLink', '')
+        'webLink': email.get('webLink', ''),
+        'internetMessageId': email.get('internetMessageId', '')
     }
 
 
@@ -323,8 +377,19 @@ def main():
             print(json.dumps(result))
 
         elif args.get:
-            email = get_email_by_id(token, args.get)
-            print(json.dumps(format_email_json(email)))
+            # Try to get by ID first
+            try:
+                email = get_email_by_id(token, args.get)
+                print(json.dumps(format_email_json(email)))
+            except Exception as e:
+                # If ID fails (maybe it changed due to archiving),
+                # try treating it as an internetMessageId
+                email = find_email_by_internet_message_id(token, args.get)
+                if email:
+                    print(json.dumps(format_email_json(email)))
+                else:
+                    print(json.dumps({'error': str(e)}), file=sys.stderr)
+                    sys.exit(1)
 
         elif args.search:
             emails = search_emails(token, args.search)
@@ -361,6 +426,8 @@ import webbrowser
 # Configuration - UPDATE THESE VALUES
 CLIENT_ID = "your-client-id-here"
 TENANT_ID = "your-tenant-id-here"  # or "common" for multi-tenant
+CLIENT_ID = "4ae68297-e83b-41a1-8a0f-659db3f6ad01"
+TENANT_ID = "14b77578-9773-42d5-8507-251ca2dc2b06"
 
 # Microsoft Graph API endpoint
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
